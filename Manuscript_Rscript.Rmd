@@ -1,0 +1,1647 @@
+---
+title: "Rscript for 'Microbiome metabolic capacity is buffered against perturbation-induced phylotype losses by functional redundancies'"
+author: "Kayla Cross"
+date: "2024-09-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Authors
+Kayla Cross1, Noelle Beckman2, Benjamin Jahnes3, Zakee L. Sabree1*
+1-Department of Microbiology, Ohio State University, Columbus, OH, USA
+2-Utah State University, Logan, UT, USA
+3-Department of Evolution, Ecology and Organismal Biology, Ohio State University, Columbus, OH, US
+*Corresponding Author, Zakee L. Sabree, 318 W. 12th Avenue, Room 300, Columbus, OH, 43210. Email: sabree.8@osu.edu Phone: 614-688-1590
+
+## Abstract
+
+Many animals contain a species-rich and diverse gut microbiota that likely contributes several host-supportive services that include diet processing and nutrient provisioning. Loss of microbiome taxa, and their associated metabolic functions, as result of perturbations may result in loss of microbiome-level services and reduction of metabolic capacity. If metabolic functions are shared by multiple taxa (i.e functional redundancy), including deeply divergent lineages, then the impact of taxon/function losses may be dampened. We examined to what degree do alterations in phylotype diversity impact microbiome-level metabolic capacity. Feeding two nutritionally-imbalanced diets to omnivorous Periplaneta americana over eight weeks reduced the diversity of their phylotype-rich gut microbiomes by ~25% based on 16S rRNA gene amplicon sequencing, yet PICRUSt2-inferred metabolic pathway richness was largely unaffected due to their being polyphyletic. We concluded that the nonlinearity between taxon and metabolic functional losses is due to microbiome members sharing many well-characterized metabolic functions, with lineages remaining after perturbation potentially being capable of preventing microbiome ‘service outages’ due to functional redundancy. 
+
+Note: for all analyses, cellulose-enriched fed insects from weeks five through eight were removed from the analysis due to low sampling.
+
+## Community Ecology Analysis
+
+Code in this section was originally written by Dr. Noelle Beckman. Additionally, cellulose-enri
+
+### A. Beta diversity analysis: Sørenson (i.e. phylotype presence-absence) and Bray-Curtis (i.e. phylotype relative abundance) 
+Code generates Figure 1. Diet defines microbiota and reduces alpha diversity
+```{r, echo=TRUE}
+library(vegan)
+library(data.table)
+
+# 1. Load Data and Clean up (cellulose late weeks)
+location = "/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github"
+file.name = c("KC_Filtered_QC_L5_20210325.txt")
+
+# Load data	
+i=file.name[1]
+data=read.table(file.path(location,i),header=TRUE,sep="\t")
+
+# Transpose data	
+redata=t(data[,-1])
+
+# Make data.frame
+redata=as.data.frame(redata)
+
+# Add phylotype as column names
+colnames(redata)=data[,1]
+
+# remove cellulose weeks 5 to 8
+redata2 = t(redata[, -c(36, 108:109, 114:117)])
+
+# 2. Create dataframe for treatments and weeks. Make sure week is continuous. 
+# Treatments and weeks dataframe
+tmp=data.table(ID=rownames(redata2))
+tmp[,diet:=substring(ID,1,2)]
+tmp[,ind:=substring(ID,4,4)]
+tmp[,week:=substring(ID,6,6)]
+
+tmp[,ind:=as.numeric(ind)]
+tmp[diet=="DF",individual:=ind]
+tmp[diet=="HN",individual:=ind+7]
+tmp[diet=="LN",individual:=ind+13]
+
+tmp[,dietweek:=paste0(diet,week)]
+
+tmp$diet <- as.factor(tmp$diet)	
+tmp$week <-as.numeric(tmp$week)
+
+# 3. Statistical Tests for Bray-Curtis and Sorenson
+
+pairwise.disp <- function(x,factors, sim.function = 'vegdist', sim.method = 'bray', p.adjust.m ='bonferroni',Binary=FALSE,nperm=nperm)
+  
+{
+  
+  library(vegan)
+  
+  
+  
+  co = combn(unique(as.character(factors)),2)
+  
+  pairs = c()
+  
+  df.treat =c()
+  
+  df.res = c()
+  
+  F.Model =c()
+  
+  p.value = c()
+  
+  
+  
+  
+  
+  for(elem in 1:ncol(co)){
+    
+    if(sim.function == 'daisy'){
+      
+      library(cluster); x1 = daisy(x[factors %in% c(co[1,elem],co[2,elem]),],metric=sim.method)
+      
+    } else{x1 = vegdist(x[factors %in% c(co[1,elem],co[2,elem]),],method=sim.method,binary=Binary)}
+    
+    
+    
+    bd <- betadisper(x1,factors[factors %in% c(co[1,elem],co[2,elem])])
+    
+    ad = permutest(bd,permutations=how(nperm=nperm));
+    
+    pairs = c(pairs,paste(co[1,elem],'vs',co[2,elem]));
+    
+    df.treat=c(df.treat,ad$tab[["Df"]][1]);
+    
+    df.res=c(df.res,ad$tab[["Df"]][2]);
+    
+    F.Model =c(F.Model,ad$tab[1,4]);
+    
+    p.value = c(p.value,ad$tab[1,6])
+    
+  }
+  
+  p.adjusted = p.adjust(p.value,method=p.adjust.m)
+  
+  sig = c(rep('',length(p.adjusted)))
+  
+  sig[p.adjusted <= 0.05] <-'.'
+  
+  sig[p.adjusted <= 0.01] <-'*'
+  
+  sig[p.adjusted <= 0.001] <-'**'
+  
+  sig[p.adjusted <= 0.0001] <-'***'
+  
+  
+  
+  pairw.res = data.frame(pairs,df.treat,df.res,F.Model,p.value,p.adjusted,sig)
+  
+  print("Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1")
+  
+  return(pairw.res)
+  
+  
+  
+}
+
+# For the permutation design, we are restricting permutations within individuals as suggested by Gavin Simpson
+# https://stats.stackexchange.com/questions/590510/repeated-measures-permanova-nowhere-to-find
+h <- how(within = Within(type = "free"), plots = Plots(strata = tmp$individual, type="none"), nperm=9999)
+
+
+# analyses for Bray-Curtis - PERMANOVA and Dispersion tests	
+# comparison between weeks - no significant difference
+adonis2(redata2~tmp$diet*tmp$week, permutations = h, method="bray") # this came back with significance for diet, week, and diet:week
+adonis2(redata2~tmp$week*tmp$diet, permutations = h, method="bray") # this came back with significance for diet, week, and diet:week
+    # the order of grouping variables defines their hierarchy in the analysis. The first grouping factor is considered the primary factory and the other variables are nested within it.
+    # I would consider diet the primary grouping variable, therefore, go with the first code (tmp$diet ~ tmp$week)
+
+disper_week_bc<-betadisper(vegdist(redata2),tmp$week)
+permutest(disper_week_bc, permutations = how(nperm = 9999)) # this was reported in the paper for week (stat F and p only since not sig) and diet (Table S3)
+
+
+# comparison between diets
+disper_week_bc_diet <-betadisper(vegdist(redata2),tmp$diet)
+permutest(disper_week_bc_diet,permutations=how(nperm=9999)) # this was reported in table S3
+#anova(disper_week_bc_diet) # calculate whether distances differ statistically
+#adonis2(dist(disper_week_bc_diet$distances) ~ disper_week_bc_diet$group) # test is significant, so there is evidence of a difference in dispersion between the two groups
+pairwise.disp(redata2,factors=tmp$diet,Binary=FALSE,nperm=9999,p.adjust='fdr') # this was reported in the paper
+
+# analysis for Sorenson's
+adonis2(redata2~tmp$diet*tmp$week, permutations = h, method="bray",	binary=TRUE) # diet and week came back significant
+
+# Comparison between weeks
+disper_week_sor<-betadisper(vegdist(redata2, binary=TRUE),tmp$week) 
+#anova(disper_week_sor)
+permutest(disper_week_sor,permutations=how(nperm=9999))# not significant
+
+# Comparison between Diet
+disper_diet_sor<-betadisper(vegdist(redata2, binary=TRUE),tmp$diet)
+#anova(disper_diet_sor)
+permutest(disper_diet_sor,permutations=how(nperm=9999))
+pairwise.disp(redata2,factors=tmp$diet,Binary=TRUE,nperm=9999,p.adjust='fdr')
+```
+
+```{r, results='hide', error=FALSE, warning=FALSE, message=FALSE}
+# NMDS Plots
+
+# MDS (Non-metric multidimensional Scaling)
+# the distance metric defaults to Bray and common ecological data transformations are turned on by default. We want to turn these off.		
+
+# From Clark and Waricke
+# Stress<0.05 gives an excellent representation
+# Stress <0.1 corresponds to good ordination with no prospect of misleading interpretation; higher dimensions will not add additional infor to overall structure
+# Stress <0.2 gives potentially useful 2-dimensional pcitures, though for values at the upper end of this range too much relance shound not be placed on the detail of the plot
+# Stress >0.3 indicates that points are close to being arbitrarily places in the 2 D ordination space.
+
+NMDS.scree<-function(x,dis="bray",bin=FALSE) { #where x is the name of the data frame variable
+  plot(rep(1,10),replicate(10,metaMDS(x,distance=dis,binary=bin,autotransform=F,k=1,engine="monoMDS")$stress),xlim=c(1,11),ylim=c(0,0.3),xlab="# of Dimensions",ylab="Stress",main="NMDS stress plot")
+  for (i in 1:10) { #(nrow(x)-2)
+    points(rep(i+1,10),replicate(10,metaMDS(x,distance=dis,binary=bin, autotransform=F,k=i+1)$stress))
+  }
+  abline(h=0.2, lty=4)
+  abline(h=0.1, lty=2)
+  abline(h=0.05,lty=3)	
+}	
+
+# For Bray-Curtis
+NMDS.scree(redata2,dis="bray",bin=T) # k=3 (stress= ca. 0.12) or k= 4 (stress= ca. 0.09), k=2 (stress = 0.16), k=7 (Stress=0.05)
+
+mydata.mds0 <- metaMDS(redata2, distance = "bray", trymax=100,autotransform=FALSE,k=2)
+# Sorenson's (presence/absence Bray-Curtis)
+mydata.mds2 <- metaMDS(redata2,distance="bray",trymax=100,autotransform=FALSE,k=2,binary=TRUE)
+# stress is nearly zero: you may have insufficient data
+
+meta.md<-metaMDS
+
+variableScores0 <- mydata.mds0$species
+sampleScores0 <- mydata.mds0$points
+
+variableScores2 <- mydata.mds2$species
+sampleScores2 <- mydata.mds2$points
+```
+
+```{r}
+
+#  ordispider draws a ‘spider’ diagram where each point is connected to the group centroid
+#     DF (black), HN(cyan4), LN(dotted)
+library(dplyr)
+tmp <- mutate(tmp, colors = case_when(
+  diet == "DF" ~ "black",
+  diet == "HN" ~ "cyan4",
+  diet == "LN" ~ "darkorange",
+  TRUE ~ NA_character_  # Handle other cases, if any
+))
+
+tmp <- mutate(tmp, fill = case_when(
+  diet == "DF" ~ "black",
+  diet == "HN" ~ "cyan4",
+  diet == "LN" ~ "darkorange",
+  TRUE ~ NA_character_  # Handle other cases, if any
+))
+
+tmp <- mutate(tmp, shape = case_when(
+  diet == "DF" ~ 22,
+  diet == "HN" ~ 21,
+  diet == "LN" ~ 23,
+  TRUE ~ NA_integer_  # Handle other cases, if any
+))
+
+tmp <- mutate(tmp, lt = case_when(
+  diet == "DF" ~ "solid",
+  diet == "HN" ~ "solid",
+  diet == "LN" ~ "solid",
+  TRUE ~ NA_character_  # Handle other cases, if any
+))
+
+
+
+par(mfrow = c(1, 2))
+
+save(mydata.mds0, file = "/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/Beta_Diversity_mydata.mds0.noLN5_8.Rdata")
+
+save(mydata.mds2, file = "/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/Beta_Diversity_mydata.mds2.noLN5_8.Rdata")
+
+save(tmp, file = "/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/Beta_Diversity_tmp.noLN5_8.Rdata")
+
+
+```
+
+```{r}
+plot.new()
+# Raw Redata
+plot(mydata.mds0, type = "none", main = "Bray Curtis Raw Abundance", xlim=c(-1.0, 1.5),ylim=c(-1.0, 1.0))
+
+
+#Plot convex hulls with colors based on treatment
+for(i in unique(tmp$diet)) {
+  ordispider(mydata.mds0,groups=tmp$diet,show.group=tmp$diet[tmp$diet==i],
+             col= tmp$colors[grep(i,tmp$diet)],
+             lty= tmp$lt[grep(i, tmp$diet)], label=F)  
+} 
+
+#legend(x=1.5, y=0.5, legend=unique(tmp$diet),col= c("black","cyan4","darkorange"),
+#lty = c("solid", "solid", "solid"), pch=10,cex=1)
+
+mds0_points <- mydata.mds0[["points"]]
+
+# Sorenson
+plot(mydata.mds2, type= "none", main = "Sorenson", xlim=c(-0.1, .1),ylim=c(-0.15, .125))
+
+#Plot convex hulls with colors based on treatment
+for(i in unique(tmp$diet)) {
+  ordispider(mydata.mds2,groups=tmp$diet,show.group=tmp$diet[tmp$diet==i],
+             col=tmp$colors[grep(i,tmp$diet)],
+             lty=tmp$lt[grep(i, tmp$diet)], label=F)  
+} 
+
+
+```
+
+
+
+### B. Alpha diversity analysis: Phylotype richness, Hill-Shannon Diversity, and Hill-Simpson Diversity at the family taxonomic level.
+
+Diversity values was ran using iNEXT on Ohio Supercomputer Center using L5 filtered table
+output was 
+(1) "diveristy-order0-" for q = 0
+(2) "diversity-pointestimate-minsize" for q = 1
+(3) "diversity-pointestimate-mincoverage" for q = 2
+
+I used those 3 dataframes to make a .Rdata file so that all hill numbers were in the same file
+
+Make sure you have "Functions.R"
+
+The iNEXT code takes some time to run, so I've included diversity_min_size.Rdata, which is the iNEXT output combined into one data table. 
+
+```{r}
+library(iNEXT)
+library(ggplot2)
+library(cowplot)
+library(xtable)
+library(ggpubr)
+
+# data=read.table(file.path(location,i),header=TRUE,sep="\t")
+
+# Remove first column (first column are phylotypes names)
+# redata=data[,-1]
+# redata=redata[,-1]
+
+# order <- as.data.frame(t(redata))
+
+# order <- order[order(rownames(order)), ]
+
+# x <- order[-c(109, 108, 114:117), ]
+
+# y <- as.data.frame(t(x))
+
+# Hill Numbers: q - 0, 1, 2
+# code takes some time to run, so I've included the "diversity_min_size.Rdata" to load and
+# use in downstream analysis. 
+
+# diversity_min_size = estimateD(y,datatype="abundance", base = "size", level =  min(colSums(redata)))
+# save(diversity_min_size,file=file.path(location,paste0("diversity-pointestimate-minsize",format(Sys.Date(),"%Y%m%d"),"family-knots100002.Rdata")))
+
+#diversity_max_size = estimateD(y,datatype="abundance", base = "size", level = min(colSums(redata)))
+#save(diversity_max_size,file=file.path(location,paste0("diversity-pointestimate-maxsize",format(Sys.Date(),"%Y%m%d"),"family-knots100002.Rdata")))
+
+#diversity_min_coverage = estimateD(y,datatype="abundance", base = "coverage")
+#save(diversity_min_coverage,file=file.path(location,paste0("diversity-pointestimate-mincoverage",format(Sys.Date(),"%Y%m%d"),"family-knots100002.Rdata")))
+```
+
+
+```{r, echo=TRUE}
+require(lme4)
+require(xtable)
+require(lattice)
+require("LMERConvenienceFunctions")
+require(AICcmodavg)
+require(nlme)
+library(tidyr)
+library(dplyr)
+
+# Load diversity data.table. Change location. 
+location="/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github"
+
+# Number of simulations for bootstrapping
+boot_sims=1000
+
+# Source functions
+source(file.path(location,"Functions.R"))
+
+load("~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/diversity_min_size.Rdata")
+
+# restructuring the data so that each hill number has it's own column and removing the LCL and UCL values
+data <- pivot_wider(diversity_min_size, 
+                    names_from = order,
+                    values_from = qD,
+                    id_cols = c(site, qD.LCL, qD.UCL))
+
+q0 <- data[, 1:4]
+q0 <- na.omit(q0)
+
+q1 <- data[, c(1:3, 5)]
+q1 <- na.omit(q1)
+
+q2 <- data[, c(1:3, 6)]
+q2 <- na.omit(q2)
+
+redata <- cbind.data.frame(q0[, c(1,4)], q1[, 4], q2[, 4])
+
+diversity = diversity_min_size # keeping original just in case
+
+diversity_min_size <- redata %>% rename("Srar" = '0', "Shan" = '1', "Simp" = '2')
+
+
+
+# Break up ID to diet, individuals, and week
+diversity_min_size$diet = substring(diversity_min_size$site,1,2)
+diversity_min_size$ind = substring(diversity_min_size$site,4,4)
+diversity_min_size$week = substring(diversity_min_size$site,6,6)
+
+# Rename individuals so each one is unique
+diversity_min_size$ind = as.numeric(diversity_min_size$ind)
+diversity_min_size$individual=vector(mode="numeric", length=length(diversity_min_size$ind))
+diversity_min_size[diversity_min_size$diet=="DF","individual"] =
+  diversity_min_size[diversity_min_size$diet=="DF", "ind"]
+diversity_min_size[diversity_min_size$diet=="HN","individual"] =
+  diversity_min_size[diversity_min_size$diet == "HN", "ind"] + 7 
+diversity_min_size[diversity_min_size$diet=="LN","individual"] =
+  diversity_min_size[diversity_min_size$diet == "LN", "ind"] + 13 		
+
+# Make diet, individual, and ID factors. Weeks is assumed to be continuous.
+diversity_min_size$diet=as.factor(diversity_min_size$diet)
+diversity_min_size$ind=as.factor(diversity_min_size$ind)
+
+diversity_min_size$individual=as.factor(diversity_min_size$individual)
+diversity_min_size$site=as.factor(diversity_min_size$site)
+
+diversity_min_size$week = as.numeric(diversity_min_size$week)
+diversity_min_size$week0=diversity_min_size$week-1
+
+### Species Richness
+# LMM with correlated random intercept
+div_index = c("Srar")
+models <- lapply(div_index, function(x) {
+  lmer(substitute(y ~ diet*week0+(1|individual), list(y =
+                                                        as.name(x))),
+       data = diversity_min_size)
+})  
+names(models) <- div_index 
+
+summary(models[["Srar"]]) # this information is used in the paper for LMM results
+
+confint_lmer <- list()
+for (i in 1:length(div_index)){
+  confint_lmer[[i]]<-tryCatch.W.E(confint(models[[i]],method="boot",nsim=boot_sims,boot.type="perc"))
+} 
+rm(i)
+names(confint_lmer) <- div_index
+save(confint_lmer,file="CI_Srar_min_size_withoutLN5to8.R")
+
+confint_lmer[["Srar"]] # These are the confidence intervals found in the supplemental material
+
+coef.Srar <- as.data.frame(coef(summary(models[["Srar"]])))
+
+sr.conf <- confint_lmer[["Srar"]]$value
+sr.conf2 <- sr.conf[-2, ]
+
+sr.sd <- c(3.843, 0, 0 ) # 3.843 came from Random Effects Sd.Dev, which might change a litte if you rerun the code due to the bootstrapping
+
+coef.Srar2 <- rbind.data.frame(sr.sd, coef.Srar)
+
+LMM.table.Srar <- cbind.data.frame(coef.Srar2[, 1], sr.conf2)
+colnames(LMM.table.Srar) <- c("Coefficient_Estimate", "2.5%", "97.5%")
+rownames(LMM.table.Srar) <- c("SD among Individuals", "Intercept", "Protien Enriched", "Cellulose Enriched", "Week", "Protein x Week", "Cellulose x Week")
+
+LMM.table.Srar <- format(LMM.table.Srar, scientific=F) # combinding data to be inputted into supplemental
+
+write.csv(LMM.table.Srar, "/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/LMM.table.Srar.csv")
+
+tableCI_Srar_min_size<-xtable(confint_lmer[["Srar"]]$value)
+caption(tableCI_Srar_min_size)<-"95 Percent Bootstrapped Confidence Intervals for 
+LMM of Interpolated/Extrapolated Species Richness"
+label(tableCI_Srar_min_size)<-"Table:BSlmer_Srar_min_size"
+tableCI_Srar_min_size
+
+# Code adapted from http://glmm.wikidot.com/faq  
+newdat_HN <- expand.grid(week0 = 1:8, diet=c("DF","HN"),`Srar`= 0)
+newdat_LN <- expand.grid(week0 = 1:4, diet=c("LN"),`Srar`= 0)
+newdat <- rbind(newdat_HN, newdat_LN)
+mm <- model.matrix(terms(models[["Srar"]]),newdat)
+newdat$`Srar`<-mm %*% fixef(models[["Srar"]])
+# or predict(modelSrar,newdat,re.form=NA)
+pvar1 <- diag(mm %*% tcrossprod(vcov(models[["Srar"]]),mm))
+tvar1 <- pvar1+VarCorr(models[["Srar"]])$individual[1]## must be adapted for more complex models
+newdat <- data.frame(
+  newdat
+  , plo = newdat$`Srar`-2*sqrt(pvar1)
+  , phi = newdat$`Srar`+2*sqrt(pvar1)
+  , tlo = newdat$`Srar`-2*sqrt(tvar1)
+  , thi = newdat$`Srar`+2*sqrt(tvar1)
+)
+names(newdat)[names(newdat)=="q...0"] ="Srar"
+require(ggplot2)
+newdat$colors[newdat$diet=="DF"]="black"
+newdat$colors[newdat$diet=="HN"]="cyan4"
+newdat$colors[newdat$diet=="LN"]="darkorange"
+
+newdat$colorsfill[newdat$diet=="DF"]="black"
+newdat$colorsfill[newdat$diet=="HN"]="cyan4"
+newdat$colorsfill[newdat$diet=="LN"]="darkorange"
+
+newdat$shape[newdat$diet=="DF"]=22
+newdat$shape[newdat$diet=="HN"]=21
+newdat$shape[newdat$diet=="LN"]=23
+
+newdat$lt[newdat$diet=="DF"]="solid"
+newdat$lt[newdat$diet=="HN"]="solid"
+newdat$lt[newdat$diet=="LN"]="solid"
+
+write.csv(newdat, "SpeciesRich_nocell58_newdat.csv")
+
+g0 <- ggplot(newdat, aes(x=week0, y=`Srar`))+
+  geom_point(colour=newdat$colors,
+             fill=newdat$colorsfill,shape=newdat$shape, cex=4)
+
+
+g0 + geom_errorbar(aes(ymin = plo, ymax = phi),colour=newdat$colors,cex=1, linetype=newdat$lt) +
+  labs (x ="", y = "Species Presence") +
+  theme(panel.background = element_blank(), axis.line = element_line(colour = "black",size=1),
+        axis.title = element_text(size=20),
+        axis.text = element_text(size=15))
+
+
+
+# Shannon Diversity
+# LMM with correlated random intercept
+div_index = c("Shan")
+models <- lapply(div_index, function(x) {
+  lmer(substitute(y ~ diet*week0+(1|individual), list(y =
+                                                        as.name(x))),
+       data = diversity_min_size)
+})  
+names(models) <- div_index 
+
+summary(models[["Shan"]]) # matches supplemental table
+
+confint_lmer <- list()
+for (i in 1:length(div_index)){
+  confint_lmer[[i]]<-tryCatch.W.E(confint(models[[i]],method="boot",nsim=boot_sims,boot.type="perc"))
+} 
+rm(i)
+names(confint_lmer) <- div_index
+save(confint_lmer,file="/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/CI_Shan_min_size.R")
+
+confint_lmer[["Shan"]] # this will be a little bit different due to bootstraping, but shouldn't be too off
+
+coef.Shan <- as.data.frame(coef(summary(models[["Shan"]])))
+
+sh.conf <- confint_lmer[["Shan"]]$value
+sh.conf2 <- sh.conf[-2, ]
+
+sh.sd <- c(1.876, 0, 0 ) # 1.876 came from Random Effects Sd.Dev
+
+coef.shan2 <- rbind.data.frame(sh.sd, coef.Shan)
+
+LMM.table.shan <- cbind.data.frame(coef.shan2[, 1], sh.conf2)
+colnames(LMM.table.shan) <- c("Coefficient_Estimate", "2.5%", "97.5%")
+rownames(LMM.table.shan) <- c("SD among Individuals", "Intercept", "Protien Enriched", "Cellulose Enriched", "Week", "Protein x Week", "Cellulose x Week")
+
+LMM.table.shan <- format(LMM.table.shan, scientific=F)
+
+write.csv(LMM.table.shan, "/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/LMM.table.shan.csv")
+
+```
+
+## Microbiota relative abundance varies by diet
+Code generates Figure 2.Relative abundances of P. americana fecal microbiome phylotypes as altered by diet. 
+```{r, echo=TRUE, results='hide', error=FALSE, warning=FALSE, message=FALSE}
+library(vegan)
+library(ComplexHeatmap)
+library(circlize)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(readxl)
+
+clean_data <- read_excel("~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/KC_L5_Filter_Data_20210324.xlsx")
+clean_data <- clean_data[, -1]
+clean_data <- clean_data[, -1]
+
+redata <- clean_data
+
+redata <- t(redata)
+order <- as.data.frame(redata[order(row.names(redata)), ])
+
+split_order <- str_split_fixed(rownames(order), '_', 3)
+
+colnames(split_order) <- c("Diet", "Ind", "Week")
+
+split_order <- cbind.data.frame(split_order, order)
+order_split_order <- split_order[order(split_order$Week), ]
+
+numeric <- as.data.frame(apply(order_split_order[, -c(1:3)], 2, as.numeric))
+rownames(numeric) <- rownames(order_split_order)
+
+order_split_order2 <- cbind.data.frame(order_split_order[, 1:3], numeric)
+
+# separate by diet
+DF.2 <- order_split_order2[grep("DF", order_split_order2$Diet), ]
+HN.2 <- order_split_order2[grep("HN", order_split_order2$Diet), ]
+LN.2 <- order_split_order2[grep("LN", order_split_order2$Diet), ]
+
+# separate by week
+### DF week
+DF_Week1 <- as.data.frame(DF.2[which(DF.2$Week == '1'), 4:147])
+DF_Week2 <- as.data.frame(DF.2[which(DF.2$Week == '2'), 4:147])
+DF_Week3 <- as.data.frame(DF.2[which(DF.2$Week == '3'), 4:147])
+DF_Week4 <- as.data.frame(DF.2[which(DF.2$Week == '4'), 4:147])
+DF_Week5 <- as.data.frame(DF.2[which(DF.2$Week == '5'), 4:147])
+DF_Week6 <- as.data.frame(DF.2[which(DF.2$Week == '6'), 4:147])
+DF_Week7 <- as.data.frame(DF.2[which(DF.2$Week == '7'), 4:147])
+DF_Week8 <- as.data.frame(DF.2[which(DF.2$Week == '8'), 4:147])
+
+### HN week
+HN_Week1 <- as.data.frame(HN.2[which(HN.2$Week == '1'), 4:147])
+HN_Week2 <- as.data.frame(HN.2[which(HN.2$Week == '2'), 4:147])
+HN_Week3 <- as.data.frame(HN.2[which(HN.2$Week == '3'), 4:147])
+HN_Week4 <- as.data.frame(HN.2[which(HN.2$Week == '4'), 4:147])
+HN_Week5 <- as.data.frame(HN.2[which(HN.2$Week == '5'), 4:147])
+HN_Week6 <- as.data.frame(HN.2[which(HN.2$Week == '6'), 4:147])
+HN_Week7 <- as.data.frame(HN.2[which(HN.2$Week == '7'), 4:147])
+HN_Week8 <- as.data.frame(HN.2[which(HN.2$Week == '8'), 4:147])
+
+### LN week
+LN_Week1 <- as.data.frame(LN.2[which(LN.2$Week == '1'), 4:147])
+LN_Week2 <- as.data.frame(LN.2[which(LN.2$Week == '2'), 4:147])
+LN_Week3 <- as.data.frame(LN.2[which(LN.2$Week == '3'), 4:147])
+LN_Week4 <- as.data.frame(LN.2[which(LN.2$Week == '4'), 4:147])
+
+
+# Convert to Relative Abundance with Vegan Package
+apply(DF_Week1, 1, sum)
+DF_1_rel <- decostand(DF_Week1, method = "total")
+apply(DF_1_rel, 1, sum)
+
+# 2
+apply(DF_Week2, 1, sum)
+DF_2_rel <- decostand(DF_Week2, method = "total")
+apply(DF_2_rel, 1, sum)
+# 3
+apply(DF_Week3, 1, sum)
+DF_3_rel <- decostand(DF_Week3, method = "total")
+apply(DF_3_rel, 1, sum)
+# 4
+apply(DF_Week4, 1, sum)
+DF_4_rel <- decostand(DF_Week4, method = "total")
+apply(DF_4_rel, 1, sum)
+# 5
+apply(DF_Week5, 1, sum)
+DF_5_rel <- decostand(DF_Week5, method = "total")
+apply(DF_5_rel, 1, sum)
+# 6
+apply(DF_Week6, 1, sum)
+DF_6_rel <- decostand(DF_Week6, method = "total")
+apply(DF_6_rel, 1, sum)
+# 7
+apply(DF_Week7, 1, sum)
+DF_7_rel <- decostand(DF_Week7, method = "total")
+apply(DF_7_rel, 1, sum)
+
+# 8
+apply(DF_Week8, 1, sum)
+DF_8_rel <- decostand(DF_Week8, method = "total")
+apply(DF_8_rel, 1, sum)
+
+# HN:convert to Relative Abundance with vegan package
+# 1
+apply(HN_Week1, 1, sum)
+HN_1_rel <- decostand(HN_Week1, method = "total")
+apply(HN_1_rel, 1, sum)
+# 2
+apply(HN_Week2, 1, sum)
+HN_2_rel <- decostand(HN_Week2, method = "total")
+apply(HN_2_rel, 1, sum)
+# 3
+apply(HN_Week3, 1, sum)
+HN_3_rel <- decostand(HN_Week3, method = "total")
+apply(HN_3_rel, 1, sum)
+# 4
+apply(HN_Week4, 1, sum)
+HN_4_rel <- decostand(HN_Week4, method = "total")
+apply(HN_4_rel, 1, sum)
+# 5
+apply(HN_Week5, 1, sum)
+HN_5_rel <- decostand(HN_Week5, method = "total")
+apply(HN_5_rel, 1, sum)
+# 6
+apply(HN_Week6, 1, sum)
+HN_6_rel <- decostand(HN_Week6, method = "total")
+apply(HN_6_rel, 1, sum)
+
+# 7
+apply(HN_Week7, 1, sum)
+HN_7_rel <- decostand(HN_Week7, method = "total")
+apply(HN_7_rel, 1, sum)
+
+# 8
+apply(HN_Week8, 1, sum)
+HN_8_rel <- decostand(HN_Week8, method = "total")
+apply(HN_8_rel, 1, sum)
+
+
+# LN:convert to Relative Abundance with vegan package
+# 1
+apply(LN_Week1, 1, sum)
+LN_1_rel <- decostand(LN_Week1, method = "total")
+apply(LN_1_rel, 1, sum)
+# 2
+apply(LN_Week2, 1, sum)
+LN_2_rel <- decostand(LN_Week2, method = "total")
+apply(LN_2_rel, 1, sum)
+# 3
+apply(LN_Week3, 1, sum)
+LN_3_rel <- decostand(LN_Week3, method = "total")
+apply(LN_3_rel, 1, sum)
+# 4
+apply(LN_Week4, 1, sum)
+LN_4_rel <- decostand(LN_Week4, method = "total")
+apply(LN_4_rel, 1, sum)
+
+
+# DF: Means of relative abundance
+# 1
+DF_1_rel_means <- colMeans(DF_1_rel)
+# 2
+DF_2_rel_means <- colMeans(DF_2_rel)
+# 3
+DF_3_rel_means <- colMeans(DF_3_rel)
+# 4
+DF_4_rel_means <- colMeans(DF_4_rel)
+# 5
+DF_5_rel_means <- colMeans(DF_5_rel)
+# 6
+DF_6_rel_means <- colMeans(DF_6_rel)
+# 7
+DF_7_rel_means <- colMeans(DF_7_rel)
+# 8
+DF_8_rel_means <- colMeans(DF_8_rel)
+
+DF_1_rel_means -> DF_Week1
+DF_2_rel_means -> DF_Week2
+DF_3_rel_means -> DF_Week3
+DF_4_rel_means -> DF_Week4
+DF_5_rel_means -> DF_Week5
+DF_6_rel_means -> DF_Week6
+DF_7_rel_means -> DF_Week7
+DF_8_rel_means -> DF_Week8
+
+# HN: Means of relative abundance
+# 1
+HN_1_rel_means <- colMeans(HN_1_rel)
+# 2
+HN_2_rel_means <- colMeans(HN_2_rel)
+# 3
+HN_3_rel_means <- colMeans(HN_3_rel)
+# 4
+HN_4_rel_means <- colMeans(HN_4_rel)
+# 5
+HN_5_rel_means <- colMeans(HN_5_rel)
+# 6
+HN_6_rel_means <- colMeans(HN_6_rel)
+# 7
+HN_7_rel_means <- colMeans(HN_7_rel)
+# 8 
+HN_8_rel_means <- colMeans(HN_8_rel)
+
+HN_1_rel_means -> HN_Week1
+HN_2_rel_means -> HN_Week2
+HN_3_rel_means -> HN_Week3
+HN_4_rel_means -> HN_Week4
+HN_5_rel_means -> HN_Week5
+HN_6_rel_means -> HN_Week6
+HN_7_rel_means -> HN_Week7
+HN_8_rel_means -> HN_Week8
+
+# LN: Means of relative abundance
+# 1
+LN_1_rel_means <- colMeans(LN_1_rel)
+# 2
+LN_2_rel_means <- colMeans(LN_2_rel)
+# 3
+LN_3_rel_means <- colMeans(LN_3_rel)
+#4
+LN_4_rel_means <- colMeans(LN_4_rel)
+LN_1_rel_means -> LN_Week1
+LN_2_rel_means -> LN_Week2
+LN_3_rel_means -> LN_Week3
+LN_4_rel_means -> LN_Week4
+
+# combine all DF, HN, LN rel means into a table 
+DF_rbind <- rbind(DF_Week1, DF_Week2, DF_Week3, DF_Week4, DF_Week5, DF_Week6, 
+                  DF_Week7, DF_Week8)
+HN_rbind <- rbind(HN_Week1, HN_Week2, HN_Week3, HN_Week4, HN_Week5, HN_Week6, 
+                  HN_Week7, HN_Week8)
+LN_rbind <- rbind(LN_Week1, LN_Week2, LN_Week3, LN_Week4)
+
+DF_names <- as.data.frame(colnames(DF_rbind))
+DF_names_split <- str_split_fixed(DF_names$`colnames(DF_rbind)`, ';', 5)
+DF_rownames <- paste(DF_names_split[,3], DF_names_split[, 4], DF_names_split[,5], sep = " ")
+
+D = t(DF_rbind)
+D_bind <- cbind.data.frame(DF_rownames, D)
+D_bind <- D_bind[, -1]
+# D_bind[D_bind < 0.001] <- NA
+
+HN_names <- as.data.frame(colnames(HN_rbind))
+HN_names_split <- str_split_fixed(HN_names$`colnames(HN_rbind)`, ';', 5)
+
+H = t(HN_rbind)
+H_bind <- cbind.data.frame(HN_names_split[,5], H)
+H_bind <- H_bind[,-1]
+# H_bind[H_bind < 0.001] <- NA
+
+LN_names <- as.data.frame(colnames(LN_rbind))
+LN_names_split <- str_split_fixed(LN_names$`colnames(LN_rbind)`, ';', 5)
+
+L = t(LN_rbind)
+L_bind <- cbind.data.frame(LN_names_split[,5], L)
+L_bind <- L_bind[,-1]
+# L_bind[L_bind < 0.001] <- NA
+
+D_bind <- as.matrix(D_bind)
+H_bind <- as.matrix(H_bind)
+L_bind <- as.matrix(L_bind)
+
+col_fun = colorRamp2(c(0, 0.025, 0.05, 0.10, 0.15, 0.20, 0.25, 0.3, 0.35, 0.4, 0.46), c("white", "gold", "gold2","goldenrod2","orange","orangered", "orangered3","red", "red3","darkred","black"))
+
+DF_H = Heatmap(D_bind, name = "DF", col = col_fun, na_col = "white", cluster_rows = FALSE, 
+               cluster_columns = FALSE, rect_gp = gpar(col = "lightgrey", lwd = 1))
+HN_H = Heatmap(H_bind, name = "H;.N", col = col_fun, na_col = "white", cluster_rows = FALSE, 
+               cluster_columns = FALSE, rect_gp = gpar(col = "lightgrey", lwd = 1))
+LN_H = Heatmap(L_bind, name = "LN", col = col_fun, na_col = "white", cluster_rows = FALSE, 
+               cluster_columns = FALSE, rect_gp = gpar(col = "lightgrey", lwd = 1))
+Ht_List = DF_H + HN_H + LN_H
+```
+
+```{r}
+lgd = Legend(title = "Relative Abundance", col_fun = col_fun, 
+             at = c(0, 0.025, 0.05, 0.10, 0.15, 0.20, 0.25, 0.3, 0.35, 0.4, 0.46), 
+             labels = c("0", "0.025","0.05", "0.10", "0.15", "0.20", "0.25", "0.3", "0.35", "0.4", "0.46"), 
+             direction = "horizontal")
+
+draw(Ht_List, annotation_legend_list = lgd, annotation_legend_side = "top", 
+     show_heatmap_legend = FALSE)
+```
+
+
+## Prediction of Functional Pathways with PICRUSt2
+
+PICRUSt2 (version 2.1.4b0) was ran on Ohio SuperComputer (OSC) in terminal using the full pipeline script found here: https://github.com/picrust/picrust2/wiki/Full-pipeline-script 
+
+Metacyc pathways were predicted and used for the analysis. 
+
+Additionally, we also included "--per_sequence_contrib" command to yield 'per-taxon' pathways. 
+
+## PICRUSt2 Analysis: Measuring Metabolic Capacity
+Code generatse Figure 3. Phylotype loss has minimal impact on metabolic capacity due to pathway redundancy across phylotypes.
+
+# Using PICRUSt2 'per-taxon' pathway output to make tables that are bined by family
+```{r}
+library(readxl)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+
+# 1. Rank families by relative abundance
+
+taxa <- read_delim("/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/KC_L7_Filter_OTU_Name.txt", 
+                   delim = "\t", escape_double = FALSE, 
+                   trim_ws = TRUE)
+
+names(taxa)[1] <- "taxanomy"
+names(taxa)[2] <- "OTU"
+
+tmp_taxa = as.data.frame(taxa[, 1:2])
+
+# pull out DF
+balanced_taxa <- taxa[, grep("^DF", names(taxa))]
+balanced_taxa2 <- cbind.data.frame(tmp_taxa, balanced_taxa)
+
+balanced_taxa3 = as.data.frame(rowSums(balanced_taxa2[, 3:57]))
+
+balanced_taxa4 = cbind.data.frame(tmp_taxa, balanced_taxa3)
+names(balanced_taxa4)[3] = "balanced_taxa_abundance"
+
+# pull out protein
+protein_taxa <- taxa[, grep("^HN", names(taxa))]
+protein_taxa2 <- cbind.data.frame(tmp_taxa, protein_taxa)
+
+protein_taxa3 = as.data.frame(rowSums(protein_taxa2[, 3:45]))
+
+protein_taxa4 = cbind.data.frame(tmp_taxa, protein_taxa3)
+names(protein_taxa4)[3] = "protein_taxa_abundance"
+
+# pull out cellulose, weeks 1-4
+cellulose_taxa <- taxa[, grep("^LN", names(taxa))]
+cellulose_taxa2 <- cbind.data.frame(tmp_taxa, cellulose_taxa)
+
+# remove weeks post 4
+
+cols_to_remove <- grep("LN_\\d+_([5-9]|[1-9]\\d+)$", names(cellulose_taxa2))
+
+cellulose_taxa3 <- cellulose_taxa2[, -cols_to_remove]
+
+cellulose_taxa4 = as.data.frame(rowSums(cellulose_taxa3[, 3:24]))
+
+cellulose_taxa5 = cbind.data.frame(tmp_taxa, cellulose_taxa4)
+names(cellulose_taxa5)[3] = "cellulose_taxa_abundance"
+
+# combine balanced_taxa4, protein_taxa4, and cellulose_taxa5. Match by OTU ID
+merged_taxa <- balanced_taxa4 %>%
+  inner_join(protein_taxa4, by = "OTU") %>%
+  inner_join(cellulose_taxa5, by = "OTU")
+
+# make sure that columns combined correctly
+are_columns_same <- all(merged_taxa$taxanomy.x == merged_taxa$taxanomy.y)
+
+if (are_columns_same) {
+  print("Columns are the same.")
+} else {
+  print("Columns are different.")
+} 
+# columns are the same
+
+are_columns_same2 <- all(merged_taxa$taxanomy.x == merged_taxa$taxanomy)
+
+if (are_columns_same2) {
+  print("Columns are the same.")
+} else {
+  print("Columns are different.")
+}
+# columns are the same 
+# remove the extra columns 
+
+merged_taxa2 <- merged_taxa[, -c(4, 6)]
+  
+#seperate by family
+split <- as.data.frame(str_split_fixed(merged_taxa2$taxanomy, ";", n = 7))
+names(split) <- c("kingdom", "phylum", "class", "order", "family", "genus", "species")
+
+taxa3 <- cbind.data.frame(split[, 1:5], merged_taxa2[, 2:5]) # only keep up through family
+
+result_taxa <- taxa3 %>%
+  group_by(kingdom, phylum, class, order, family) %>%
+  summarize(
+    OTU = first(OTU),
+    balanced_taxa_abundance = sum(balanced_taxa_abundance),
+    protein_taxa_abundance = sum(protein_taxa_abundance),
+    cellulose_taxa_abundance = sum(cellulose_taxa_abundance),
+    # Add similar lines for other columns if needed
+    .groups = 'drop'
+  ) %>%
+  mutate(concatenated_columns = paste(kingdom, phylum, class, order, family, sep = "_"))
+
+result_taxa2 <- result_taxa[, -c(1:5)]
+
+result_taxa2 <- result_taxa2[, c(5, 1:4)]
+
+# find relative abundance of each diet type. 
+
+result_taxa2$RA_balanced_taxa <- result_taxa2$balanced_taxa_abundance/sum(result_taxa2$balanced_taxa_abundance)
+
+result_taxa2$RA_protein_taxa <- result_taxa2$protein_taxa_abundance/sum(result_taxa2$protein_taxa_abundance)
+
+result_taxa2$RA_cellulose_taxa <- result_taxa2$cellulose_taxa_abundance/sum(result_taxa2$cellulose_taxa_abundance)
+
+rank_taxa <- result_taxa2 %>%
+  mutate(
+    rank_balanced = length(RA_balanced_taxa) - rank(RA_balanced_taxa) + 1,
+    rank_protein = length(RA_protein_taxa) - rank(RA_protein_taxa) + 1,
+    rank_cellulose = length(RA_cellulose_taxa) - rank(RA_cellulose_taxa) + 1
+  )
+  # In this code, max_rank is used to calculate the maximum rank, and then the 
+  # ranks are subtracted from the maximum rank and incremented by 1. This ensures 
+  # that the highest abundance gets a rank of 1.
+
+# rearrange so that columns related to each diet type are the same
+rank_taxa2 <- rank_taxa[, c(1:3, 6, 9, 4, 7, 10, 5, 8, 11)]
+
+
+# 2. count functional pathways n each familiy --> any pathway that is less than 2 sd from mean will not be considered present
+# Changing the mean/sd thing. Any sample within a row that is less than 2sd from the mean of that row will not be considered present. 
+# example: Bacteroides has 50% total pathway profile, Dysgonomonadace only has 20% NEW?UNIQUE pathways so that brins it up to 70% total pathway profile
+
+# OTU contributing to each
+otu_mc <- read_delim("/Users/kaylacross/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/path_abun_strat.tsv", 
+                     delim = "\t", escape_double = FALSE, 
+                     trim_ws = TRUE)
+# lets come back to the mean and standard deviation later. 
+# first, let's count each pathway in each family. 
+# a. combine by diet
+# b. collapse OTU into family level. output table should be pathway per family
+
+otu_mc2 = otu_mc
+
+names(otu_mc2)[2] = "OTU"
+otu_mc_taxa <- merge(tmp_taxa, otu_mc2, by = "OTU", all = TRUE)
+
+# split taxonomy
+split2 <- as.data.frame(str_split_fixed(otu_mc_taxa$taxanomy, ";", n = 7))
+names(split2) <- c("kingdom", "phylum", "class", "order", "family", "genus", "species")
+
+split3 <- split2[, 1:5] # only keep up to family
+split4 <- split3 %>%
+  mutate(taxa = paste(kingdom, phylum, class, order, family, sep = "_"))
+
+otu_mc_taxa2 <- cbind.data.frame(otu_mc_taxa[, 1:2], split4$taxa, otu_mc_taxa[, 3:126])
+names(otu_mc_taxa2)[3] <- "taxa_family"
+
+otu_mc_taxa3 <- otu_mc_taxa2[, -c(1:2)] # no longer need individual OTU's and full taxanomy 
+
+# now combine by pathway and family. Output should be pathways by family
+family_pathway <- otu_mc_taxa3 %>%
+  group_by(taxa_family, pathway) %>%
+  summarize(across(everything(), sum), .groups = 'drop')
+
+```
+
+For the heatmap, this is looking at pathway preseence (non-zero values) and absence (zero values) in protein-enriched and cellulose-enriched diets compared to balanced diet treatments.
+Tan - pathways remained detectable across the treatment weeks
+White - pathways were undetectable across treatment weeks
+Red - pathways were only detectable at the end of the treatment
+Black - pathways were undectable at the end of the treatment
+
+
+##### Note: the figures are quite large and will not show up in this markdown. For the full figure, please refer to the manuscript. If you would like to output the figure, export into a pdf in a size that fits the entire heatmap.  
+
+
+# Protein-enriched
+```{r, echo=TRUE}
+# load packages
+library(dplyr)
+library(pheatmap)
+library(tidyr)
+library(stringr)
+library(RColorBrewer)
+library(readxl)
+
+
+# "Rank_taxa2.RData" was created in code chunk above. This lists all the 
+# families and the relative abundance of the families across all weeks in the diet. 
+# This allows for families to be ranked by relative abundance once merged with
+# pathway data.
+
+load("~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/Rank_Taxa2.RData")
+
+
+# "family_pathway.RData" was created in the code chunk above. This file has
+# the abunance of all taxonomic family - pathway combinations across all dietary samples
+
+load("~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/family_pathway.RData")
+
+# load in "unique_pathways_ontology.xlsx", which has L3 Metacyc classification for each pathway
+# group the pathways in the figure by L3, then within each L3 order by most shared pathways 
+
+unique_pathways_ontology <- read_excel("~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/unique_pathways_ontology.xlsx")
+
+
+# remove archaea data 
+
+# family_pathway2 <- subset(family_pathway, !grepl("^Archaea", taxa_family))
+
+family_pathway2 <- family_pathway
+
+#####
+# seperate out by diet and remove NAs
+
+# remove NAs
+min(rowSums(family_pathway2[, -c(1:2)])) #NA
+rows_with_na_sum <- which(rowSums(is.na(family_pathway2[, 3:ncol(family_pathway2)])) > 0)
+no_NA <- family_pathway2[-c(5447, 8423, 8424), ]
+min(rowSums(no_NA[, -c(1:2)]))
+
+# protein
+otu_b <- no_NA[, grep("^DF", names(no_NA))]
+otu_b2 <- cbind.data.frame(no_NA[, 1:2], otu_b)
+
+# Protein
+otu_h <- no_NA[, grep("^HN", names(no_NA))]
+otu_h2 <- cbind.data.frame(no_NA[, 1:2], otu_h)
+
+# Cellulose, weeks 1-4
+otu_c <- no_NA[, grep("^LN", names(no_NA))]
+otu_c2 <- cbind.data.frame(no_NA[, 1:2], otu_c)
+
+# remove weeks post 4
+
+cols_to_remove2 <- grep("LN_\\d+_([5-9]|[1-9]\\d+)$", names(no_NA))
+
+otu_c2 <- no_NA[, -cols_to_remove2]
+
+
+#####
+# create new dataframes for each diet for week 1, 4, and 8 
+# compare protein weeks 4 and 8 to balanced week 1
+# sum rows
+
+balanced_week1 <- otu_b2[, grep("1$", names(otu_b2))]
+balanced_week1_sum <- as.data.frame(rowSums(balanced_week1))
+names(balanced_week1_sum) <- "balanced_wk1_sum"
+
+protein_week1 <- otu_h2[, grep("1$", names(otu_h2))]
+protein_week1_sum <- as.data.frame(rowSums(protein_week1))
+names(protein_week1_sum) <- "protein_wk1_sum"
+
+protein_week4 <- otu_h2[, grep("4$", names(otu_h2))]
+protein_week4_sum <- as.data.frame(rowSums(protein_week4))
+names(protein_week4_sum) <- "protein_wk4_sum"
+
+protein_week8 <- otu_h2[, grep("8$", names(otu_h2))]
+protein_week8_sum <- as.data.frame(rowSums(protein_week8))
+names(protein_week8_sum) <- "protein_wk8_sum"
+
+protein_sum <- cbind.data.frame(otu_b2[, 1:2], balanced_week1_sum, 
+                                 protein_week4_sum,
+                                 protein_week8_sum)
+# column1 is changing to only have the family name vs the taxanomic hierarchy
+  # actually, I'm removing this because some families (i.e. "uncultured bacterium") are repeated for different phylums
+# protein_sum$family <- sapply(strsplit(protein_sum$taxa_family, "_"), function(x) tail(x, 1))
+
+
+# change to a binary table. If value is 0, then value stays at 0. If value is greater than 0, then value changes to 1
+
+protein_binary_table <- protein_sum %>%
+  mutate(across(ends_with("_sum"), ~ifelse(. > 0, 1, 0)))
+
+
+
+# create a 6th column that represents the values across columns 3 to 5. 
+# Put a value as 0 if the value is 0 across columns 3 to 5. 
+# Put a value of 1 if the value is 1 across columns 3 to 5. 
+# Put a value of 2 if the the value in column 4 or 5 is greater than column 3. 
+# Put a value of 3 if the value in column 4 or 5 is less than column 3
+
+
+protein_binary_table2 <- protein_binary_table %>%
+  mutate(new_column = case_when(
+    balanced_wk1_sum == 0 & protein_wk4_sum == 0 & protein_wk8_sum == 0 ~ 0,
+    balanced_wk1_sum == 1 & protein_wk4_sum == 1 & protein_wk8_sum == 1 ~ 1,
+    balanced_wk1_sum == 1 & protein_wk8_sum == 1 ~ 1,
+    protein_wk4_sum > balanced_wk1_sum | protein_wk8_sum > balanced_wk1_sum ~ 2,
+    protein_wk4_sum < balanced_wk1_sum | protein_wk8_sum < balanced_wk1_sum ~ 3,
+    TRUE ~ NA_real_  # Handle other cases
+  ))
+
+# This pathway needs to be reformatted.
+# Column 1: families
+# Column 2: pathways
+# Column 3: presence (yes or no if pathway is present or not)
+# Column 4: values based on "new column" in protein_binary_table2. 
+  # if "new column" = 1, then presence should be "yes". 
+  # if "new column" = 0, then presence is "no".
+  # if "new column" = 2 or 3, then presence is "yes". 
+  # This is because the pathway is present atleast once during weeks 1, 4, and 8
+# This also needs to be organized by most abundant families listed first, 
+  # then organized by most shared pathways. 
+
+
+# 1. create new column for "presence"
+protein_binary_table2 <- protein_binary_table2 %>%
+  mutate(presence = ifelse(`new_column` > 0, "yes", "no"))
+
+# 2. remove sum columns
+protein_binary_table3 <- protein_binary_table2[, -c(3:5)]
+
+# 3. make sure all pathways are accounted for in each family. Even if a pathway = 0, I want it accounted for. 
+# Get unique pathways
+unique_pathways <- unique(protein_binary_table3$pathway)
+
+# Create an empty dataframe to store the result
+new_dataframe <- data.frame(taxa_family = character(),
+                            pathway = character(),
+                            new_column = numeric(),
+                            presence = character(),
+                            stringsAsFactors = FALSE)
+
+# Iterate over each family
+for (family in unique(protein_binary_table3$taxa_family)) {
+  # Get pathways for the current family
+  pathways_for_family <- unique(protein_binary_table3$pathway[protein_binary_table3$taxa_family == family])
+  
+  # Check each unique pathway
+  for (pathway in unique_pathways) {
+    if (pathway %in% pathways_for_family) {
+      # Pathway is present in the current family
+      new_row <- protein_binary_table3[protein_binary_table3$pathway == pathway & protein_binary_table3$taxa_family == family, ]
+    } else {
+      # Pathway is not present in the current family
+      new_row <- data.frame(taxa_family = family,
+                            pathway = pathway,
+                            new_column = 0,
+                            presence = "no",
+                            stringsAsFactors = FALSE)
+    }
+    
+    # Append the new row to the result dataframe
+    new_dataframe <- rbind(new_dataframe, new_row)
+  }
+}
+
+# 4. remove any archaea taxa family
+
+# new_dataframe2 <- subset(new_dataframe, !grepl("^Archaea", taxa_family))
+
+
+#5. Organize families so that the most abundant is listed first down to least abundant
+# Use rank_taxa2
+
+ protein_taxa_rank <- rank_taxa2[, c(1, 8)] %>%
+   arrange(rank_protein, .by_group = TRUE) %>%
+  as.data.frame()
+
+#protein_taxa_rank2 <- subset(protein_taxa_rank, !grepl("^Archaea", concatenated_columns))
+protein_taxa_rank2 <- protein_taxa_rank
+
+# Get the unique values of 'concatenated_columns' in the order of appearance
+unique_order <- unique(protein_taxa_rank2$concatenated_columns)
+
+new_dataframe2 <- new_dataframe
+# Create an index vector that reorders the rows of new_dataframe2 based on the unique order
+index <- match(new_dataframe2$taxa_family, unique_order)
+
+# Reorder new_dataframe2 based on the index vector
+ordered_new_dataframe2 <- new_dataframe2[order(index), ]
+
+# remove NAs
+#ordered_new_dataframe3 <- ordered_new_dataframe2[-c(43888:43890), ]
+
+
+# 5B. Instead of organizing by most abundant families, we are going to do the same order as in the bacterial family heatmap 
+# this makes it so that this shared pathways heatmap is comparable between protein and cellulose
+
+# If we end up not going this route, just remove this line of code and the rest should work just fine. 
+# re order "ordered_new_dataframe2" taxa_family column in alphabetical order
+ordered_new_dataframe2 <- ordered_new_dataframe2 %>%
+  arrange(taxa_family)
+
+
+#6. Create a heatmap
+# Change 'taxa_family' to a factor with the order of 'ordered_new_dataframe2$taxa_family'
+ordered_new_dataframe2$taxa_family <- factor(ordered_new_dataframe2$taxa_family, levels = unique(ordered_new_dataframe2$taxa_family))
+
+# Create heatmap_matrix with row names as taxa_family
+heatmap_matrix <- ordered_new_dataframe2 %>%
+  select(taxa_family, pathway, new_column) %>%
+  spread(pathway, new_column, fill = 0) %>%
+  arrange(taxa_family) %>%
+  as.matrix()
+
+heatmap_matrix2 <- apply(heatmap_matrix[,-1], 2, as.numeric)
+rownames(heatmap_matrix2) <- str_extract(heatmap_matrix[, 1], "(?<=_)[^_]+$")
+
+# ordering pathways so that the most shared pathways present throughout the entire pathway is organized first
+# Function to calculate total number of 1s in each column
+count_ones <- function(column) {
+  sum(column == 1)
+}
+
+# Calculate total number of 1s for each column
+total_ones <- apply(heatmap_matrix2, 2, count_ones)
+
+# Sort column names based on total number of 1s
+# sorted_columns <- colnames(heatmap_matrix2)[order(total_ones, decreasing = TRUE)]
+
+# Reorder the matrix columns
+# sorted_mat <- heatmap_matrix2[, sorted_columns]
+
+#unique_pathways_ontology$Ontology_L3 <- factor(unique_pathways_ontology$Ontology_L3, levels = 42)
+
+pathway_to_ontology <- unique_pathways_ontology$Ontology_L3
+names(pathway_to_ontology) <- unique_pathways_ontology$unique_pathways
+
+# Calculate the number of 1's for each pathway
+pathway_counts <- colSums(heatmap_matrix2 == 1)
+
+# Create a dataframe with pathways, their Ontology_L3 group, and the counts of 1's
+pathway_info <- data.frame(
+  Pathway = names(pathway_counts),
+  Ontology_L3 = pathway_to_ontology[names(pathway_counts)],
+  Count = pathway_counts
+)
+
+# Order the pathways within each group by the number of 1's
+ordered_pathways <- do.call(c, lapply(split(pathway_info, pathway_info$Ontology_L3), function(df) {
+  df[order(-df$Count), "Pathway"]
+}))
+
+# Reorder the columns of sorted_mat based on the new order
+sorted_mat <- heatmap_matrix2[, ordered_pathways]
+
+# Create the annotation dataframe for pheatmap
+annotation_col <- data.frame(Ontology_L3 = pathway_to_ontology[ordered_pathways])
+rownames(annotation_col) <- ordered_pathways
+
+
+par(mar = c(5, 6, 4, 2)) 
+plot.new()
+
+# Function to create custom color palette
+custom_color <- colorRampPalette(c("white", "bisque2", "red", "black"))
+labels <- c("0: Not present", "1: Present", "2: Present in week 8", "3: Present in week 1")
+
+
+# Create heatmap
+pheatmap(sorted_mat, 
+         annotation_col = annotation_col,
+         fontsize_col = 2,
+         fontsize_row = 4,
+         color = custom_color(4),
+         border_color = "lightgrey",
+         cluster_rows = FALSE, 
+         cluster_cols = FALSE,
+         cellwidth = 5,
+         cellheight = 5,
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         main = "Protein Diet Presence/Absence/Loss/Gain 8 Weeks of Pathways in All Families Compared to Balanced Week 1",
+         fontsize_main = 40,
+         ylab = "Taxa Famly",
+         annotate_legend = TRUE,
+         legend_breaks = 0:3,
+         legend_labels = labels)
+
+# Put a value as 0 if the value is 0 across columns 3 to 5. 
+# Put a value of 1 if the value is 1 across columns 3 to 5. 
+# Put a value of 2 if the the value in column 4 or 5 is greater than column 3. 
+# Put a value of 3 if the value in column 4 or 5 is less than column 3
+
+
+
+# use the sorted_mat matrix to create a presence/absence data table for Feye with full taxonomic names
+
+new <- cbind.data.frame(heatmap_matrix[,1 ], sorted_mat)
+rownames(new) <- new$`heatmap_matrix[, 1]`
+new <- new[, -1]
+
+protein_new_presence_absence <- as.data.frame(ifelse(new > 0, 1, 0))
+
+
+
+write.csv(protein_new_presence_absence, "~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/new_protein_presence_absence.csv")
+
+```
+
+
+# Cellulose-enriched
+```{r}
+# load packages
+library(dplyr)
+library(pheatmap)
+library(tidyr)
+library(stringr)
+library(readxl)
+
+# "Rank_taxa2.RData" was created in file Rank-Abundance.Rmd. This lists all the 
+# families and the relative abundance of the families across all weeks in the diet. 
+# This allows for families to be ranked by relative abundance once merged with
+# pathway data.
+
+load("~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/Rank_Taxa2.RData")
+
+
+# "family_pathway.RData" was created in file Rank-Abundance.Rmd. This file has
+# the abunance of all taxonomic family - pathway combinations across all dietary samples
+
+load("~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/family_pathway.RData")
+
+# load in "unique_pathways_ontology.xlsx", which has L3 Metacyc classification for each pathway
+# group the pathways in the figure by L3, then within each L3 order by most shared pathways 
+
+unique_pathways_ontology <- read_excel("~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/unique_pathways_ontology.xlsx")
+
+
+family_pathway2 <- family_pathway
+#####
+# seperate out by diet and remove NAs
+
+# remove NAs
+min(rowSums(family_pathway2[, -c(1:2)])) #NA
+rows_with_na_sum <- which(rowSums(is.na(family_pathway2[, 3:ncol(family_pathway2)])) > 0)
+no_NA <- family_pathway2[-c(5447, 8423, 8424), ]
+min(rowSums(no_NA[, -c(1:2)]))
+
+# cellulose
+otu_b <- no_NA[, grep("^DF", names(no_NA))]
+otu_b2 <- cbind.data.frame(no_NA[, 1:2], otu_b)
+
+# Protein
+otu_h <- no_NA[, grep("^HN", names(no_NA))]
+otu_h2 <- cbind.data.frame(no_NA[, 1:2], otu_h)
+
+# Cellulose, weeks 1-4
+otu_c <- no_NA[, grep("^LN", names(no_NA))]
+otu_c2 <- cbind.data.frame(no_NA[, 1:2], otu_c)
+
+# remove weeks post 4
+
+cols_to_remove2 <- grep("LN_\\d+_([5-9]|[1-9]\\d+)$", names(otu_c2))
+
+otu_c2 <- otu_c2[, -cols_to_remove2]
+
+
+#####
+# create new dataframes for each diet for week 1, 4, and 8 
+# sum rows
+
+balanced_week1 <- otu_b2[, grep("1$", names(otu_b2))]
+balanced_week1_sum <- as.data.frame(rowSums(balanced_week1))
+names(balanced_week1_sum) <- "balanced_wk1_sum"
+
+#cellulose_week1 <- otu_c2[, grep("1$", names(otu_c2))]
+#cellulose_week1_sum <- as.data.frame(rowSums(cellulose_week1))
+#names(cellulose_week1_sum) <- "cellulose_wk1_sum"
+
+cellulose_week4 <- otu_c2[, grep("4$", names(otu_c2))]
+cellulose_week4_sum <- as.data.frame(rowSums(cellulose_week4))
+names(cellulose_week4_sum) <- "cellulose_wk4_sum"
+
+#cellulose_week8 <- otu_c2[, grep("8$", names(otu_c2))]
+#cellulose_week8_sum <- as.data.frame(rowSums(cellulose_week8))
+#names(cellulose_week8_sum) <- "cellulose_wk8_sum"
+
+cellulose_sum <- cbind.data.frame(otu_c2[, 1:2], balanced_week1_sum, 
+                                 cellulose_week4_sum)
+# column1 is changing to only have the family name vs the taxanomic hierarchy
+  # actually, I'm removing this because some families (i.e. "uncultured bacterium") are repeated for different phylums
+# cellulose_sum$family <- sapply(strsplit(cellulose_sum$taxa_family, "_"), function(x) tail(x, 1))
+
+
+# change to a binary table. If value is 0, then value stays at 0. If value is greater than 0, then value changes to 1
+
+cellulose_binary_table <- cellulose_sum %>%
+  mutate(across(ends_with("_sum"), ~ifelse(. > 0, 1, 0)))
+
+
+# create a 6th column that represents the values across columns 3 to 5. 
+# Put a value as 0 if the value is 0 across columns 3 to 5. 
+# Put a value of 1 if the value is 1 across columns 3 to 5. 
+# Put a value of 2 if the the value in column 4 or 5 is greater than column 3. 
+# Put a value of 3 if the value in column 4 or 5 is less than column 3
+
+
+cellulose_binary_table2 <- cellulose_binary_table %>%
+  mutate(new_column = case_when(
+    balanced_wk1_sum == 0 & cellulose_wk4_sum == 0 ~ 0,
+    balanced_wk1_sum == 1 & cellulose_wk4_sum == 1 ~ 1,
+    cellulose_wk4_sum > balanced_wk1_sum ~ 2,
+    cellulose_wk4_sum < balanced_wk1_sum ~ 3,
+    TRUE ~ NA_real_  # Handle other cases
+  ))
+
+# This pathway needs to be reformatted.
+# Column 1: families
+# Column 2: pathways
+# Column 3: presence (yes or no if pathway is present or not)
+# Column 4: values based on "new column" in cellulose_binary_table2. 
+  # if "new column" = 1, then presence should be "yes". 
+  # if "new column" = 0, then presence is "no".
+  # if "new column" = 2 or 3, then presence is "yes". 
+  # This is because the pathway is present atleast once during weeks 1, 4, and 8
+# This also needs to be organized by most abundant families listed first, 
+  # then organized by most shared pathways. 
+
+
+# 1. create new column for "presence"
+cellulose_binary_table2 <- cellulose_binary_table2 %>%
+  mutate(presence = ifelse(`new_column` > 0, "yes", "no"))
+
+# 2. remove sum columns
+cellulose_binary_table3 <- cellulose_binary_table2[, -c(3:4)]
+
+# 3. make sure all pathways are accounted for in each family. Even if a pathway = 0, I want it accounted for. 
+# Get unique pathways
+unique_pathways <- unique(cellulose_binary_table3$pathway)
+
+# Create an empty dataframe to store the result
+new_dataframe <- data.frame(taxa_family = character(),
+                            pathway = character(),
+                            new_column = numeric(),
+                            presence = character(),
+                            stringsAsFactors = FALSE)
+
+# Iterate over each family
+for (family in unique(cellulose_binary_table3$taxa_family)) {
+  # Get pathways for the current family
+  pathways_for_family <- unique(cellulose_binary_table3$pathway[cellulose_binary_table3$taxa_family == family])
+  
+  # Check each unique pathway
+  for (pathway in unique_pathways) {
+    if (pathway %in% pathways_for_family) {
+      # Pathway is present in the current family
+      new_row <- cellulose_binary_table3[cellulose_binary_table3$pathway == pathway & cellulose_binary_table3$taxa_family == family, ]
+    } else {
+      # Pathway is not present in the current family
+      new_row <- data.frame(taxa_family = family,
+                            pathway = pathway,
+                            new_column = 0,
+                            presence = "no",
+                            stringsAsFactors = FALSE)
+    }
+    
+    # Append the new row to the result dataframe
+    new_dataframe <- rbind(new_dataframe, new_row)
+  }
+}
+
+# 4. remove any archaea taxa family
+
+# new_dataframe2 <- subset(new_dataframe, !grepl("^Archaea", taxa_family))
+
+new_dataframe2 <- new_dataframe
+
+#5. Organize families so that the most abundant is listed first down to least abundant
+# Use rank_taxa2
+
+cellulose_taxa_rank <- rank_taxa2[, c(1, 11)] %>%
+  arrange(rank_cellulose, .by_group = TRUE) %>%
+  as.data.frame()
+
+# cellulose_taxa_rank2 <- subset(cellulose_taxa_rank, !grepl("^Archaea", concatenated_columns))
+
+cellulose_taxa_rank2 <- cellulose_taxa_rank
+
+# Get the unique values of 'concatenated_columns' in the order of appearance
+unique_order <- unique(cellulose_taxa_rank2$concatenated_columns)
+
+# Create an index vector that reorders the rows of new_dataframe2 based on the unique order
+index <- match(new_dataframe2$taxa_family, unique_order)
+
+# Reorder new_dataframe2 based on the index vector
+ordered_new_dataframe2 <- new_dataframe2[order(index), ]
+
+# remove NAs
+#ordered_new_dataframe3 <- ordered_new_dataframe2[-c(43888:43890), ]
+
+#ordered_new_dataframe2 = ordered_new_dataframe3
+
+# 5B. Instead of organizing by most abundant families, we are going to do the same order as in the bacterial family heatmap 
+# this makes it so that this shared pathways heatmap is comparable between protein and cellulose
+
+# If we end up not going this route, just remove this line of code and the rest should work just fine. 
+# re order "ordered_new_dataframe2" taxa_family column in alphabetical order
+ordered_new_dataframe2 <- ordered_new_dataframe2 %>%
+  arrange(taxa_family)
+
+
+
+#6. Create a heatmap
+# Change 'taxa_family' to a factor with the order of 'ordered_new_dataframe2$taxa_family'
+ordered_new_dataframe2$taxa_family <- factor(ordered_new_dataframe2$taxa_family, levels = unique(ordered_new_dataframe2$taxa_family))
+
+# Create heatmap_matrix with row names as taxa_family
+heatmap_matrix <- ordered_new_dataframe2[, 1:3] %>%
+  spread(pathway, new_column, fill = 0) %>%
+  arrange(taxa_family) %>%
+  as.matrix()
+
+heatmap_matrix2 <- apply(heatmap_matrix[,-1], 2, as.numeric)
+rownames(heatmap_matrix2) <- str_extract(heatmap_matrix[, 1], "(?<=_)[^_]+$")
+
+# ordering pathways so that the most shared pathways present throughout the entire pathway is organized first
+# Function to calculate total number of 1s in each column
+count_ones <- function(column) {
+  sum(column == 1)
+}
+
+# Calculate total number of 1s for each column
+total_ones <- apply(heatmap_matrix2, 2, count_ones)
+
+# Sort column names based on total number of 1s
+sorted_columns <- colnames(heatmap_matrix2)[order(total_ones, decreasing = TRUE)]
+
+# Reorder the matrix columns
+#sorted_mat <- heatmap_matrix2[, sorted_columns]
+#unique_pathways_ontology$Ontology_L3 <- factor(unique_pathways_ontology$Ontology_L3, levels = 42)
+
+pathway_to_ontology <- unique_pathways_ontology$Ontology_L3
+names(pathway_to_ontology) <- unique_pathways_ontology$unique_pathways
+
+# Calculate the number of 1's for each pathway
+pathway_counts <- colSums(heatmap_matrix2 == 1)
+
+# Create a dataframe with pathways, their Ontology_L3 group, and the counts of 1's
+pathway_info <- data.frame(
+  Pathway = names(pathway_counts),
+  Ontology_L3 = pathway_to_ontology[names(pathway_counts)],
+  Count = pathway_counts
+)
+
+# Order the pathways within each group by the number of 1's
+ordered_pathways <- do.call(c, lapply(split(pathway_info, pathway_info$Ontology_L3), function(df) {
+  df[order(-df$Count), "Pathway"]
+}))
+
+# Reorder the columns of sorted_mat based on the new order
+sorted_mat <- heatmap_matrix2[, ordered_pathways]
+
+# Create the annotation dataframe for pheatmap
+annotation_col <- data.frame(Ontology_L3 = pathway_to_ontology[ordered_pathways])
+rownames(annotation_col) <- ordered_pathways
+
+
+par(mar = c(5, 6, 4, 2)) 
+plot.new()
+
+# Function to create custom color palette
+custom_color <- colorRampPalette(c("white", "bisque2", "red", "black"))
+labels <- c("0: Not present", "1: Present", "2: Present in week 8", "3: Present in week 1")
+
+
+
+# Create heatmap
+pheatmap(sorted_mat, 
+         annotation_col = annotation_col,
+         fontsize_col = 2,
+         fontsize_row = 4,
+         color = custom_color(4),
+         border_color = "lightgrey",
+         cluster_rows = FALSE, 
+         cluster_cols = FALSE,
+         cellwidth = 5,
+         cellheight = 5,
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         main = "Cellulose Diet Presence/Absence/Loss/Gain 8 Weeks of Pathways in All Families Compared to Balanced Week 1",
+         fontsize_main = 40,
+         ylab = "Taxa Famly",
+         annotate_legend = TRUE,
+         legend_breaks = 0:3,
+         legend_labels = labels)
+# Put a value as 0 if the value is 0 across columns 3 to 5. 
+# Put a value of 1 if the value is 1 across columns 3 to 5. 
+# Put a value of 2 if the the value in column 4 or 5 is greater than column 3. 
+# Put a value of 3 if the value in column 4 or 5 is less than column 3
+
+
+# use the sorted_mat matrix to create a presence/absence data table for Feye with full taxonomic names
+
+new <- cbind.data.frame(heatmap_matrix[,1 ], sorted_mat)
+rownames(new) <- new$`heatmap_matrix[, 1]`
+new <- new[, -1]
+
+cellulose_new_presence_absence <- as.data.frame(ifelse(new > 0, 1, 0))
+
+
+
+write.csv(cellulose_new_presence_absence, "~/Library/CloudStorage/OneDrive-TheOhioStateUniversity/Frass_Paper/github/new_cellulose_presence_absence.csv")
+
+```
+
+
+
+
+
